@@ -5,7 +5,6 @@ on:
     branches:
       - main
 
-
 jobs:
   ci:
     runs-on: ubuntu-latest
@@ -20,7 +19,8 @@ jobs:
           python-version: "3.11"
 
       - name: Install lint tools
-        run: pip install pylint
+        run: |
+          pip install pylint
 
       - name: Install project dependencies (producer + consumer)
         run: |
@@ -34,8 +34,7 @@ jobs:
         run: pylint consumer/app.py || true
 
       - name: EditorConfig check
-        run: python -m editorconfig_checker
-
+        uses: editorconfig-checker/action-editorconfig-checker@v2
 
       - name: Build producer image
         run: docker build -t producer-ci ./producer
