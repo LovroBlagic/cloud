@@ -35,7 +35,8 @@ jobs:
         run: pylint consumer/app.py || true
 
       - name: EditorConfig check
-        run: editorconfig-checker
+        run: python -m editorconfig_checker
+
 
       - name: Build producer image
         run: docker build -t producer-ci ./producer
