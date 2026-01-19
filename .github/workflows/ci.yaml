@@ -1,0 +1,44 @@
+name: Continuous Integration (CI)
+
+on:
+  pull_request:
+    branches:
+      - main
+      - master
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install lint tools
+        run: |
+          pip install pylint editorconfig-checker
+
+      - name: Install project dependencies (producer + consumer)
+        run: |
+          pip install -r producer/requirements.txt
+          pip install -r consumer/requirements.txt
+
+      - name: Run pylint (producer)
+        run: pylint producer/producer.py
+
+      - name: Run pylint (consumer)
+        run: pylint consumer/app.py
+
+      - name: EditorConfig check
+        run: editorconfig-checker
+
+      - name: Build producer image
+        run: docker build -t producer-ci ./producer
+
+      - name: Build consumer image
+        run: docker build -t consumer-ci ./consumer
