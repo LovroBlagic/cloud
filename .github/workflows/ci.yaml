@@ -20,8 +20,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install lint tools
-        run: |
-          pip install pylint editorconfig-checker
+        run: pip install pylint
 
       - name: Install project dependencies (producer + consumer)
         run: |
