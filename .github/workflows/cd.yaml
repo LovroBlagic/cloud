@@ -43,7 +43,6 @@ jobs:
         run: |
           gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
 
-      # ---------- Build & Push consumer ----------
       - name: Build & Push consumer image
         run: |
           IMAGE="${REGION}-docker.pkg.dev/${{ secrets.GCP_PROJECT }}/${AR_REPO}/consumer:latest"
