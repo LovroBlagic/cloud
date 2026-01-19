@@ -39,14 +39,6 @@ jobs:
             artifactregistry.googleapis.com \
             pubsub.googleapis.com
 
-      - name: Ensure Artifact Registry repo exists
-        run: |
-          if ! gcloud artifacts repositories describe "$AR_REPO" --location "$REGION" >/dev/null 2>&1; then
-            gcloud artifacts repositories create "$AR_REPO" \
-              --repository-format=docker \
-              --location "$REGION"
-          fi
-
       - name: Configure Docker auth for Artifact Registry
         run: |
           gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
