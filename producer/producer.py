@@ -14,7 +14,7 @@ REDDIT_SCHEMA_DICT = {
     "name": "RedditPost",
     "namespace": "lab.reddit",
     "fields": [
-        {"name": "id", "type": "int"},
+        {"name": "id", "type": ["int", "string"]},  # <-- match topic
         {"name": "title", "type": "string"},
         {"name": "author", "type": "string"},
         {"name": "score", "type": "int"},
@@ -22,6 +22,7 @@ REDDIT_SCHEMA_DICT = {
         {"name": "created_utc", "type": "long"},
     ],
 }
+
 
 PARSED_SCHEMA = parse_schema(REDDIT_SCHEMA_DICT)
 
