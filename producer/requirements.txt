@@ -1,1 +1,2 @@
 google-cloud-pubsub==2.22.0
+fastavro==1*
