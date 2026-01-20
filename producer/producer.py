@@ -46,17 +46,7 @@ def main():
     if not isinstance(items, list):
         raise ValueError("data.json must contain a JSON array")
 
-    # 🚨 DLQ TEST MESSAGE (VALID AVRO, consumer will fail on id=999)
-    dlq_test_item = {
-        "id": 999,
-        "title": "FORCE_DEAD_LETTER",
-        "author": "tester",
-        "score": 0,
-        "subreddit": "dataengineering",
-        "created_utc": 1737078000,
-    }
-
-    items.append(dlq_test_item)
+    
 
     publisher = pubsub_v1.PublisherClient()
     topic_path = publisher.topic_path(project_id, topic_id)
