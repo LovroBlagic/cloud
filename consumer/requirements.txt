@@ -1,8 +1,9 @@
 gunicorn==22.0.0
-flask==3.*
-google-cloud-storage==2.*
-google-cloud-bigquery==3.*
-google-cloud-pubsub==2.*
-fastavro==1.*
-pandas==2.*
-pyarrow==16.*
+flask==3.0.3
+google-cloud-storage==2.16.0
+google-cloud-bigquery==3.25.0
+google-cloud-pubsub==2.21.1
+fastavro==1.9.4
+pandas==2.2.2
+pyarrow==16.1.0
+
