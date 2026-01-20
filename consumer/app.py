@@ -3,6 +3,7 @@ import io
 import json
 import logging
 import os
+import uuid
 from datetime import datetime, timezone
 
 import pandas as pd
@@ -21,13 +22,13 @@ app = Flask(__name__)
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger("consumer")
 
-# ---- AVRO schema (mora biti identična onoj u Pub/Sub Schema Registry) ----
+# ---- AVRO schema (must match Pub/Sub Schema Registry) ----
 REDDIT_SCHEMA_DICT = {
     "type": "record",
     "name": "RedditPost",
     "namespace": "lab.reddit",
     "fields": [
-        {"name": "id", "type": ["int", "string"]},  # <-- match topic
+        {"name": "id", "type": ["int", "string"]},  # matches topic union
         {"name": "title", "type": "string"},
         {"name": "author", "type": "string"},
         {"name": "score", "type": "int"},
@@ -68,20 +69,50 @@ def decode_avro(avro_bytes: bytes) -> dict:
     return schemaless_reader(bio, PARSED_SCHEMA)
 
 
-
-def gcs_paths(topic_id: str, created_utc: int) -> tuple[str, str]:
+def normalize_obj(obj: dict) -> dict:
     """
-    Partitioned GCS object paths:
-    - JSON:    topic/year=YYYY/month=MM/day=DD/hour=HH/msg-<ts>.json
-    - Parquet: topic/year=YYYY/month=MM/day=DD/hour=HH/part-<ts>.parquet
+    Ensure types are consistent with the AVRO schema and BigQuery-friendly.
+    - id is union ["int","string"] -> keep as int where possible, else string
+    - created_utc long -> int
+    - score int -> int
+    - strings -> str (never None because schema says "string")
+    """
+    out = dict(obj)
+
+    # id: prefer int branch if it looks numeric, else string branch
+    if "id" in out and out["id"] is not None:
+        try:
+            out["id"] = int(out["id"])
+        except Exception:
+            out["id"] = str(out["id"])
+
+    # required non-null strings in your schema
+    for k in ("title", "author", "subreddit"):
+        v = out.get(k, "")
+        out[k] = "" if v is None else str(v)
+
+    out["score"] = int(out.get("score", 0))
+    out["created_utc"] = int(out["created_utc"])
+
+    # Optional: add created_at ISO string
+    out["created_at"] = datetime.fromtimestamp(out["created_utc"], tz=timezone.utc).isoformat()
+
+    return out
+
+
+def gcs_paths(topic_id: str, created_utc: int, message_id: str) -> tuple[str, str]:
+    """
+    Partitioned GCS object paths (unique per Pub/Sub message_id):
+    - JSON:    topic/year=YYYY/month=MM/day=DD/hour=HH/msg-<message_id>.json
+    - Parquet: topic/year=YYYY/month=MM/day=DD/hour=HH/part-<message_id>.parquet
     """
     dt = datetime.fromtimestamp(int(created_utc), tz=timezone.utc)
     prefix = (
         f"{topic_id}/"
         f"year={dt.year:04d}/month={dt.month:02d}/day={dt.day:02d}/hour={dt.hour:02d}"
     )
-    json_path = f"{prefix}/msg-{int(dt.timestamp())}.json"
-    parquet_path = f"{prefix}/part-{int(dt.timestamp())}.parquet"
+    json_path = f"{prefix}/msg-{message_id}.json"
+    parquet_path = f"{prefix}/part-{message_id}.parquet"
     return json_path, parquet_path
 
 
@@ -99,7 +130,7 @@ def upload_parquet_to_gcs(bucket_name: str, object_path: str, obj: dict) -> str:
     df = pd.DataFrame([obj])
 
     buf = io.BytesIO()
-    df.to_parquet(buf, index=False)  # requires pyarrow (recommended)
+    df.to_parquet(buf, index=False)  # requires pyarrow
     buf.seek(0)
 
     bucket = _storage_client.bucket(bucket_name)
@@ -109,22 +140,22 @@ def upload_parquet_to_gcs(bucket_name: str, object_path: str, obj: dict) -> str:
     return f"gs://{bucket_name}/{object_path}"
 
 
-def load_parquet_to_bigquery(gcs_uri: str, table_id: str) -> None:
+def start_load_parquet_to_bigquery(gcs_uri: str, table_id: str) -> str:
+    """
+    Start a BigQuery load job and return job_id.
+    IMPORTANT: do NOT wait (.result()) inside a Pub/Sub push request.
+    """
     job_config = bigquery.LoadJobConfig(
         source_format=bigquery.SourceFormat.PARQUET,
         write_disposition=bigquery.WriteDisposition.WRITE_APPEND,
-        schema_update_options=[
-            bigquery.SchemaUpdateOption.ALLOW_FIELD_ADDITION,
-            bigquery.SchemaUpdateOption.ALLOW_FIELD_RELAXATION,
-        ],
+        # Removed schema_update_options to avoid "too many table update operations"
     )
     load_job = _bq_client.load_table_from_uri(gcs_uri, table_id, job_config=job_config)
-    load_job.result()
+    return load_job.job_id
 
 
 @app.get("/listening")
 def listening_check():
-    # Helpful to confirm what config the service is using
     bucket_name, bq_table, topic_id = get_config()
     return (
         f"OK - listening | bucket={bucket_name} | bq_table={bq_table} | topic={topic_id}",
@@ -137,20 +168,25 @@ def pubsub_push():
     """
     Pub/Sub push format:
     {
-      "message": {"data": "base64-encoded-bytes", ...},
+      "message": {"data": "base64-encoded-bytes", "messageId": "...", ...},
       "subscription": "..."
     }
 
     Return codes:
     - 204 = ack
-    - 5xx = nack (retry -> after max attempts goes to dead-letter topic)
+    - 4xx = drop (do not retry forever for bad requests)
+    - 5xx = nack (retry)
     """
     envelope = request.get_json(silent=True) or {}
     msg = envelope.get("message") or {}
     b64 = msg.get("data")
 
+    # helpful for debugging retries / duplicates
+    message_id = msg.get("messageId") or uuid.uuid4().hex
+    delivery_attempt = msg.get("deliveryAttempt")
+
     if not b64:
-        logger.warning("No message.data in request: %s", envelope)
+        logger.warning("No message.data (messageId=%s): %s", message_id, envelope)
         return ("Bad Request: no message.data", 400)
 
     try:
@@ -162,39 +198,49 @@ def pubsub_push():
         # 2) AVRO -> dict
         obj = decode_avro(avro_bytes)
 
-        
+        # 3) normalize types / add created_at
+        obj = normalize_obj(obj)
 
-        # Optional: add created_at TIMESTAMP (recommended for BigQuery analytics)
-        obj["created_at"] = datetime.fromtimestamp(
-            int(obj["created_utc"]), tz=timezone.utc
-        ).isoformat()
+        logger.info(
+            "Decoded messageId=%s deliveryAttempt=%s obj=%s",
+            message_id,
+            delivery_attempt,
+            obj,
+        )
 
-        logger.info("Decoded AVRO message: %s", obj)
-
-        # 3) Store to GCS
-        json_path, parquet_path = gcs_paths(topic_id, obj["created_utc"])
+        # 4) Store to GCS (use message_id to avoid overwrites)
+        json_path, parquet_path = gcs_paths(topic_id, obj["created_utc"], message_id)
         upload_json_to_gcs(bucket_name, json_path, obj)
         gcs_uri = upload_parquet_to_gcs(bucket_name, parquet_path, obj)
+
         logger.info(
-            "Stored JSON+Parquet to GCS: gs://%s/%s and %s",
+            "Stored to GCS messageId=%s json=gs://%s/%s parquet=%s",
+            message_id,
             bucket_name,
             json_path,
             gcs_uri,
         )
 
-        # 4) Load Parquet -> BigQuery
-        load_parquet_to_bigquery(gcs_uri, bq_table)
-        logger.info("Loaded into BigQuery: %s from %s", bq_table, gcs_uri)
+        # 5) Start BigQuery load (do not block)
+        job_id = start_load_parquet_to_bigquery(gcs_uri, bq_table)
+        logger.info(
+            "Started BQ load job_id=%s table=%s uri=%s (messageId=%s)",
+            job_id,
+            bq_table,
+            gcs_uri,
+            message_id,
+        )
 
+        # ACK immediately so Pub/Sub doesn't retry storm on long-running loads
         return ("", 204)
 
     except Exception as e:
-        logger.exception("Processing failed (will retry / dead-letter): %s", e)
+        # Returning 500 tells Pub/Sub to retry; keep this only for truly transient errors.
+        logger.exception("Processing failed (messageId=%s): %s", message_id, e)
         return ("Processing failed", 500)
 
 
 if __name__ == "__main__":
-    # Log the config once at startup
     try:
         bucket_name, bq_table, topic_id = get_config()
         logger.info(
