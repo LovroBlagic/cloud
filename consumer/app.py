@@ -14,7 +14,7 @@ from google.cloud import storage, bigquery
 # Defaults for your lab setup
 # ----------------------------
 DEFAULT_GCS_BUCKET = "reddit-bucket2"
-DEFAULT_BQ_TABLE = "reddit.reddit_pipeline.reddit_messages"
+DEFAULT_BQ_TABLE = "reddit-484216.reddit_pipeline.reddit_messages"
 DEFAULT_TOPIC_ID = "reddit-topic"
 
 app = Flask(__name__)
