@@ -161,9 +161,7 @@ def pubsub_push():
         # 2) AVRO -> dict
         obj = decode_avro(avro_bytes)
 
-        if obj.get("id") == 999:
-            raise RuntimeError("Intentional failure to trigger dead-letter")
-
+        
 
         # Optional: add created_at TIMESTAMP (recommended for BigQuery analytics)
         obj["created_at"] = datetime.fromtimestamp(
