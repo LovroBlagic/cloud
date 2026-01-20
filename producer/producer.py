@@ -1,15 +1,44 @@
 import json
 import os
 import time
+import io
 from pathlib import Path
+
 from google.cloud import pubsub_v1
+from fastavro import parse_schema, schemaless_writer
+
+
+# AVRO schema (mora odgovarati Pub/Sub schemi)
+REDDIT_SCHEMA_DICT = {
+    "type": "record",
+    "name": "RedditPost",
+    "namespace": "lab.reddit",
+    "fields": [
+        {"name": "id", "type": ["int", "string"]},
+        {"name": "title", "type": "string"},
+        {"name": "author", "type": "string"},
+        {"name": "score", "type": "int"},
+        {"name": "subreddit", "type": "string"},
+        {"name": "created_utc", "type": "long"},
+    ],
+}
+
+PARSED_SCHEMA = parse_schema(REDDIT_SCHEMA_DICT)
+
+
+def encode_avro(record: dict) -> bytes:
+    bio = io.BytesIO()
+    schemaless_writer(bio, PARSED_SCHEMA, record)
+    return bio.getvalue()
 
 
 def main():
     project_id = os.getenv("PROJECT_ID") or os.getenv("GOOGLE_CLOUD_PROJECT")
     topic_id = os.getenv("TOPIC_ID")
     data_path = Path(os.getenv("DATA_PATH", "data.json"))
-    delay = float(os.getenv("DELAY_SECONDS", "0"))
+
+    # ⏱️ FIKSNI DELAY
+    delay = 3
 
     if not project_id or not topic_id:
         raise RuntimeError("Set PROJECT_ID (or GOOGLE_CLOUD_PROJECT) and TOPIC_ID")
@@ -18,15 +47,31 @@ def main():
     if not isinstance(items, list):
         raise ValueError("data.json must contain a JSON array")
 
+    # ❌ NAMJERNO NEISPRAVNA PORUKA (uvijek zadnja)
+    invalid_item = {
+        "id": 999,
+        "title": "INVALID MESSAGE",
+        "author": "tester",
+        "score": "oops",  # ❌ mora biti int
+        "subreddit": "dataengineering",
+        "created_utc": 1737078000,
+    }
+
+    items.append(invalid_item)
+
     publisher = pubsub_v1.PublisherClient()
     topic_path = publisher.topic_path(project_id, topic_id)
 
     for i, item in enumerate(items, start=1):
-        payload = json.dumps(item, ensure_ascii=False).encode("utf-8")
-        msg_id = publisher.publish(topic_path, payload).result(timeout=30)
-        print(f"published {i}/{len(items)} msg_id={msg_id} id={item.get('id')}")
-        if delay:
-            time.sleep(delay)
+        try:
+            payload = encode_avro(item)
+            msg_id = publisher.publish(topic_path, payload).result(timeout=30)
+            print(f"published {i}/{len(items)} msg_id={msg_id} id={item.get('id')}")
+        except Exception as e:
+            print(f"FAILED {i}/{len(items)} id={item.get('id')} error={e}")
+
+        # ⏸️ OBAVEZNI sleep(3) – preporuka iz zadatka
+        time.sleep(delay)
 
 
 if __name__ == "__main__":
