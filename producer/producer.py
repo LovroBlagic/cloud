@@ -8,7 +8,7 @@ from google.cloud import pubsub_v1
 from fastavro import parse_schema, schemaless_writer
 
 
-# AVRO schema (mora odgovarati Pub/Sub schemi)
+# AVRO schema (must match Pub/Sub schema)
 REDDIT_SCHEMA_DICT = {
     "type": "record",
     "name": "RedditPost",
@@ -37,8 +37,7 @@ def main():
     topic_id = os.getenv("TOPIC_ID")
     data_path = Path(os.getenv("DATA_PATH", "data.json"))
 
-    # ⏱️ FIKSNI DELAY
-    delay = 3
+    delay = 3  # fixed delay as required
 
     if not project_id or not topic_id:
         raise RuntimeError("Set PROJECT_ID (or GOOGLE_CLOUD_PROJECT) and TOPIC_ID")
@@ -47,17 +46,17 @@ def main():
     if not isinstance(items, list):
         raise ValueError("data.json must contain a JSON array")
 
-    # ❌ NAMJERNO NEISPRAVNA PORUKA (uvijek zadnja)
-    invalid_item = {
+    # 🚨 DLQ TEST MESSAGE (VALID AVRO, consumer will fail on id=999)
+    dlq_test_item = {
         "id": 999,
-        "title": "INVALID MESSAGE",
+        "title": "FORCE_DEAD_LETTER",
         "author": "tester",
-        "score": "oops",  # ❌ mora biti int
+        "score": 0,
         "subreddit": "dataengineering",
         "created_utc": 1737078000,
     }
 
-    items.append(invalid_item)
+    items.append(dlq_test_item)
 
     publisher = pubsub_v1.PublisherClient()
     topic_path = publisher.topic_path(project_id, topic_id)
@@ -70,7 +69,6 @@ def main():
         except Exception as e:
             print(f"FAILED {i}/{len(items)} id={item.get('id')} error={e}")
 
-        # ⏸️ OBAVEZNI sleep(3) – preporuka iz zadatka
         time.sleep(delay)
 
 
