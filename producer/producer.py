@@ -14,7 +14,7 @@ REDDIT_SCHEMA_DICT = {
     "name": "RedditPost",
     "namespace": "lab.reddit",
     "fields": [
-        {"name": "id", "type": ["int", "string"]},
+        {"name": "id", "type": "int"},
         {"name": "title", "type": "string"},
         {"name": "author", "type": "string"},
         {"name": "score", "type": "int"},
