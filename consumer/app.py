@@ -10,6 +10,13 @@ from flask import Flask, request
 from fastavro import parse_schema, schemaless_reader
 from google.cloud import storage, bigquery
 
+# ----------------------------
+# Defaults for your lab setup
+# ----------------------------
+DEFAULT_GCS_BUCKET = "reddit-bucket2"
+DEFAULT_BQ_TABLE = "reddit.reddit_pipeline.reddit_messages"
+DEFAULT_TOPIC_ID = "reddit-topic"
+
 app = Flask(__name__)
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger("consumer")
@@ -35,24 +42,42 @@ _storage_client = storage.Client()
 _bq_client = bigquery.Client()
 
 
+def get_config() -> tuple[str, str, str]:
+    """
+    Returns (bucket_name, bq_table, topic_id).
+    Uses env vars if set, otherwise falls back to lab defaults.
+    """
+    bucket_name = os.getenv("GCS_BUCKET", DEFAULT_GCS_BUCKET).strip()
+    bq_table = os.getenv("BQ_TABLE", DEFAULT_BQ_TABLE).strip()
+    topic_id = os.getenv("TOPIC_ID", DEFAULT_TOPIC_ID).strip()
+
+    if not bucket_name:
+        raise RuntimeError("GCS_BUCKET is empty")
+    if not bq_table:
+        raise RuntimeError("BQ_TABLE is empty")
+    if not topic_id:
+        raise RuntimeError("TOPIC_ID is empty")
+
+    return bucket_name, bq_table, topic_id
+
+
 def decode_avro(avro_bytes: bytes) -> dict:
     """Decode AVRO binary bytes into a Python dict."""
     bio = io.BytesIO(avro_bytes)
     return schemaless_reader(bio, PARSED_SCHEMA)
 
 
-def gcs_paths(bucket_name: str, topic_id: str, created_utc: int) -> tuple[str, str]:
+def gcs_paths(topic_id: str, created_utc: int) -> tuple[str, str]:
     """
-    Build partitioned GCS object paths:
-    - JSON:   topic/year=YYYY/month=MM/day=DD/hour=HH/<id>.json
-    - Parquet:topic/year=YYYY/month=MM/day=DD/hour=HH/part-<timestamp>.parquet
+    Partitioned GCS object paths:
+    - JSON:    topic/year=YYYY/month=MM/day=DD/hour=HH/msg-<ts>.json
+    - Parquet: topic/year=YYYY/month=MM/day=DD/hour=HH/part-<ts>.parquet
     """
     dt = datetime.fromtimestamp(int(created_utc), tz=timezone.utc)
     prefix = (
         f"{topic_id}/"
         f"year={dt.year:04d}/month={dt.month:02d}/day={dt.day:02d}/hour={dt.hour:02d}"
     )
-
     json_path = f"{prefix}/msg-{int(dt.timestamp())}.json"
     parquet_path = f"{prefix}/part-{int(dt.timestamp())}.parquet"
     return json_path, parquet_path
@@ -68,15 +93,11 @@ def upload_json_to_gcs(bucket_name: str, object_path: str, obj: dict) -> None:
 
 
 def upload_parquet_to_gcs(bucket_name: str, object_path: str, obj: dict) -> str:
-    """
-    Write a single-message Parquet file to GCS.
-    Returns the gs:// URI (needed for BigQuery load).
-    """
+    """Write a single-message Parquet file to GCS and return the gs:// URI."""
     df = pd.DataFrame([obj])
 
     buf = io.BytesIO()
-    # requires pyarrow or fastparquet installed in the image
-    df.to_parquet(buf, index=False)
+    df.to_parquet(buf, index=False)  # requires pyarrow (recommended)
     buf.seek(0)
 
     bucket = _storage_client.bucket(bucket_name)
@@ -101,7 +122,12 @@ def load_parquet_to_bigquery(gcs_uri: str, table_id: str) -> None:
 
 @app.get("/listening")
 def listening_check():
-    return "Consumer service is listening", 200
+    # Helpful to confirm what config the service is using
+    bucket_name, bq_table, topic_id = get_config()
+    return (
+        f"OK - listening | bucket={bucket_name} | bq_table={bq_table} | topic={topic_id}",
+        200,
+    )
 
 
 @app.post("/push")
@@ -109,17 +135,13 @@ def pubsub_push():
     """
     Pub/Sub push format:
     {
-      "message": {
-        "data": "base64-encoded-bytes",
-        "messageId": "...",
-        ...
-      },
+      "message": {"data": "base64-encoded-bytes", ...},
       "subscription": "..."
     }
 
     Return codes:
     - 204 = ack
-    - 5xx = nack (Pub/Sub will retry; after max attempts -> dead-letter topic)
+    - 5xx = nack (retry -> after max attempts goes to dead-letter topic)
     """
     envelope = request.get_json(silent=True) or {}
     msg = envelope.get("message") or {}
@@ -127,45 +149,57 @@ def pubsub_push():
 
     if not b64:
         logger.warning("No message.data in request: %s", envelope)
-        # treat as bad request (won't help to retry)
         return ("Bad Request: no message.data", 400)
 
-    # --- Config (env vars) ---
-    bucket_name = os.getenv("GCS_BUCKET")
-    topic_id = os.getenv("TOPIC_ID", "reddit-topic")
-    bq_table = os.getenv("BQ_TABLE")  # e.g. "my-project:reddit_pipeline.reddit_messages" OR "my-project.reddit_pipeline.reddit_messages"
-
-    if not bucket_name or not bq_table:
-        logger.error("Missing env vars: GCS_BUCKET and/or BQ_TABLE")
-        # retry won't fix misconfig; but failing fast makes it obvious
-        return ("Server misconfigured", 500)
-
     try:
-        # 1) Decode base64 -> AVRO bytes
+        bucket_name, bq_table, topic_id = get_config()
+
+        # 1) base64 -> AVRO bytes
         avro_bytes = base64.b64decode(b64)
 
-        # 2) Decode AVRO -> dict
+        # 2) AVRO -> dict
         obj = decode_avro(avro_bytes)
+
+        # Optional: add created_at TIMESTAMP (recommended for BigQuery analytics)
+        obj["created_at"] = datetime.fromtimestamp(
+            int(obj["created_utc"]), tz=timezone.utc
+        ).isoformat()
+
         logger.info("Decoded AVRO message: %s", obj)
 
-        # 3) Store to GCS (JSON + Parquet, partitioned)
-        json_path, parquet_path = gcs_paths(bucket_name, topic_id, obj["created_utc"])
+        # 3) Store to GCS
+        json_path, parquet_path = gcs_paths(topic_id, obj["created_utc"])
         upload_json_to_gcs(bucket_name, json_path, obj)
         gcs_uri = upload_parquet_to_gcs(bucket_name, parquet_path, obj)
-        logger.info("Stored JSON+Parquet to GCS: gs://%s/%s and %s", bucket_name, json_path, gcs_uri)
+        logger.info(
+            "Stored JSON+Parquet to GCS: gs://%s/%s and %s",
+            bucket_name,
+            json_path,
+            gcs_uri,
+        )
 
-        # 4) Load Parquet -> BigQuery (append)
+        # 4) Load Parquet -> BigQuery
         load_parquet_to_bigquery(gcs_uri, bq_table)
         logger.info("Loaded into BigQuery: %s from %s", bq_table, gcs_uri)
 
-        # ACK
         return ("", 204)
 
     except Exception as e:
-        # Important: 5xx makes Pub/Sub retry; after max delivery attempts -> dead-letter topic
-        logger.exception("Processing failed, will trigger retry/dead-letter: %s", e)
+        logger.exception("Processing failed (will retry / dead-letter): %s", e)
         return ("Processing failed", 500)
 
 
 if __name__ == "__main__":
+    # Log the config once at startup
+    try:
+        bucket_name, bq_table, topic_id = get_config()
+        logger.info(
+            "Starting consumer with config: bucket=%s bq_table=%s topic=%s",
+            bucket_name,
+            bq_table,
+            topic_id,
+        )
+    except Exception as e:
+        logger.error("Startup config error: %s", e)
+
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", "8080")))
