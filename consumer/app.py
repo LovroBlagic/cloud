@@ -13,7 +13,7 @@ from google.cloud import storage, bigquery
 
 
 
-GCP_PROJECT = os.getenv("GCP_PROJECT")
+GCP_PROJECT = os.getenv("PROJECT_ID")
 if not GCP_PROJECT:
     raise RuntimeError("GCP_PROJECT environment variable is not set")
 
