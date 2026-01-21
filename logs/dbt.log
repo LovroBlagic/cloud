@@ -1,0 +1,31 @@
+[0m18:03:29.119600 [debug] [MainThread]: Sending event: {'category': 'dbt', 'action': 'invocation', 'label': 'start', 'context': [<snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x7c1b0ac02db0>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x7c1b0cefc350>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x7c1b0addc3b0>]}
+
+
+============================== 18:03:29.128499 | 3113b8a7-de4a-4a7e-8d7e-83a199893ddd ==============================
+[0m18:03:29.128499 [info ] [MainThread]: Running with dbt=1.11.2
+[0m18:03:29.129580 [debug] [MainThread]: running dbt with arguments {'profiles_dir': '/home/lovro/.dbt', 'invocation_command': 'dbt init reddit_project', 'send_anonymous_usage_stats': 'True', 'indirect_selection': 'eager', 'quiet': 'False', 'no_print': 'None', 'use_experimental_parser': 'False', 'debug': 'False', 'log_format': 'default', 'write_json': 'True', 'empty': 'None', 'use_colors': 'True', 'partial_parse': 'True', 'printer_width': '80', 'log_cache_events': 'False', 'warn_error_options': 'WarnErrorOptionsV2(error=[], warn=[], silence=[])', 'warn_error': 'None', 'introspect': 'True', 'target_path': 'None', 'log_path': 'logs', 'fail_fast': 'False', 'version_check': 'True', 'static_parser': 'True', 'cache_selected_only': 'False'}
+[0m18:03:29.155906 [info ] [MainThread]: Creating dbt configuration folder at /home/lovro/.dbt
+[0m18:03:29.159931 [debug] [MainThread]: Starter project path: /home/lovro/Downloads/venv/lib/python3.12/site-packages/dbt/include/starter_project
+[0m18:03:29.166820 [info ] [MainThread]: 
+Your new dbt project "reddit_project" was created!
+
+For more information on how to configure the profiles.yml file,
+please consult the dbt documentation here:
+
+  https://docs.getdbt.com/docs/configure-your-profile
+
+One more thing:
+
+Need help? Don't hesitate to reach out to us via GitHub issues or on Slack:
+
+  https://community.getdbt.com/
+
+Happy modeling!
+
+[0m18:03:29.168108 [info ] [MainThread]: Setting up your profile.
+[0m18:05:50.208741 [info ] [MainThread]: Profile reddit_project written to /home/lovro/.dbt/profiles.yml using target's profile_template.yml and your supplied values. Run 'dbt debug' to validate the connection.
+[0m18:05:50.210248 [debug] [MainThread]: Resource report: {"command_name": "init", "command_success": true, "command_wall_clock_time": 141.1958, "process_in_blocks": "184192", "process_kernel_time": 4.504345, "process_mem_max_rss": "386188", "process_out_blocks": "80", "process_user_time": 14.547165}
+[0m18:05:50.211537 [debug] [MainThread]: Command `dbt init` succeeded at 18:05:50.211328 after 141.20 seconds
+[0m18:05:50.212885 [debug] [MainThread]: Sending event: {'category': 'dbt', 'action': 'invocation', 'label': 'end', 'context': [<snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x7c1b0af85b20>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x7c1ae9c895b0>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x7c1aeb170fb0>]}
+[0m18:05:50.214377 [debug] [MainThread]: Flushing usage events
+[0m18:05:51.273869 [debug] [MainThread]: An error was encountered while trying to flush usage events
