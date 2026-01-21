@@ -1,0 +1,22 @@
+version: 2
+
+models:
+  - name: reddit_messages_silver
+    description: "Srebrni sloj s očišćenim podacima iz Reddita. Sadrži standardizirane naslove i sentiment."
+    columns:
+      - name: id
+        description: "Jedinstveni identifikator objave."
+        tests:
+          - unique
+          - not_null
+
+      - name: sentiment
+        description: "Kategorizirani sentiment (HIGH_ENGAGEMENT, POSITIVE, NEGATIVE, NEUTRAL)."
+        tests:
+          - not_null
+          - accepted_values:
+              values:
+                - HIGH_ENGAGEMENT
+                - POSITIVE
+                - NEGATIVE
+                - NEUTRAL

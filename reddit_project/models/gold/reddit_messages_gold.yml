@@ -1,0 +1,10 @@
+version: 2
+
+models:
+  - name: reddit_messages_gold
+    description: "Zlatni sloj optimiziran za Looker Studio dashboard. Sadrži agregirane trendove i dnevne metrike."
+    columns:
+      - name: report_date
+        description: "Datum za koji su podaci agregirani."
+      - name: post_count
+        description: "Ukupan broj objava po sentimentu na taj dan."
