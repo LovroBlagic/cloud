@@ -26,7 +26,6 @@ app = Flask(__name__)
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger("consumer")
 
-# ---- AVRO schema (must match Pub/Sub Schema Registry) ----
 REDDIT_SCHEMA_DICT = {
     "type": "record",
     "name": "RedditPost",
@@ -43,7 +42,6 @@ REDDIT_SCHEMA_DICT = {
 
 PARSED_SCHEMA = parse_schema(REDDIT_SCHEMA_DICT)
 
-# ---- Clients (re-use across requests) ----
 _storage_client = storage.Client(project=GCP_PROJECT)
 _bq_client = bigquery.Client(project=GCP_PROJECT)
 
@@ -79,7 +77,6 @@ def normalize_obj(obj: dict) -> dict:
     """
     out = dict(obj)
 
-    # id: prefer int if possible
     if "id" in out and out["id"] is not None:
         try:
             out["id"] = int(out["id"])
